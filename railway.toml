@@ -1,10 +1,9 @@
-
 [build]
 builder = "NIXPACKS"
 buildCommand = "echo building..."
 
 [deploy]
-startCommand = "uvicorn main:app --host 0.0.0.0 --port $PORT"
+startCommand = "python main.py"
 healthcheckPath = "/health"
 healthcheckTimeout = 180
 restartPolicyType = "ON_FAILURE"
@@ -13,5 +12,5 @@ restartPolicyMaxRetries = 3
 # Railway resource allocations
 [resources]
 memory = "4096" # 4GB memory allocation
-cpu = "4000"    # 1 CPU core
+cpu = "1000"    # 1 CPU core
 gpu = "off"     # No GPU allocation
