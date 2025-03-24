@@ -1,6 +1,6 @@
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional, Tuple
@@ -10,6 +10,8 @@ import time
 import base64
 import tempfile
 import os
+import os.path
+import sys
 import logging
 import tensorflow as tf
 from tensorflow.keras.models import load_model
@@ -51,14 +53,26 @@ CARD_PATH = BASE_DIR / "Card" / "16042024"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Load models on startup
-    load_models()
+    try:
+        load_models()
+        logger.info("Application started with models loaded")
+    except Exception as e:
+        logger.error(f"Failed to load models at startup: {str(e)}")
+        logger.error(traceback.format_exc())
+    
     yield
+    
     # Optional cleanup on shutdown
     logger.info("Shutting down application")
 
 
 # Initialize FastAPI app with lifespan
-app = FastAPI(lifespan=lifespan, title="SET Game Detector API")
+app = FastAPI(
+    lifespan=lifespan, 
+    title="SET Game Detector API",
+    description="API for detecting SET cards and valid SETs in images",
+    version="1.0.0"
+)
 
 # Add CORS middleware
 app.add_middleware(
@@ -88,24 +102,44 @@ class DetectionResponse(BaseModel):
     processing_time: float
 
 
-# Load models
+# Load models with improved error handling
 def load_models():
     global detector_card, detector_shape, model_shape, model_fill, models_loaded
 
     if models_loaded:
+        logger.info("Models already loaded, skipping")
         return
 
     logger.info("Loading models...")
+    
+    # Verify model files exist
+    model_files = [
+        (CHAR_PATH / "shape_model.keras", "Shape classification model"),
+        (CHAR_PATH / "fill_model.keras", "Fill classification model"),
+        (SHAPE_PATH / "best.pt", "Shape detection model"),
+        (CARD_PATH / "best.pt", "Card detection model")
+    ]
+    
+    for file_path, description in model_files:
+        if not file_path.exists():
+            raise FileNotFoundError(f"Missing model file: {description} at {file_path}")
+    
     try:
         # Load Keras models for shape and fill classification
         model_shape = load_model(str(CHAR_PATH / "shape_model.keras"))
+        logger.info("Shape model loaded")
+        
         model_fill = load_model(str(CHAR_PATH / "fill_model.keras"))
+        logger.info("Fill model loaded")
 
         # Load YOLO detection models
         detector_shape = YOLO(str(SHAPE_PATH / "best.pt"))
         detector_shape.conf = 0.5
+        logger.info("Shape detector loaded")
+        
         detector_card = YOLO(str(CARD_PATH / "best.pt"))
         detector_card.conf = 0.5
+        logger.info("Card detector loaded")
 
         # Use GPU if available
         if torch.cuda.is_available():
@@ -582,25 +616,75 @@ def process_image(image_data: np.ndarray) -> Dict[str, Any]:
         )
 
 
-# Routes
-@app.get("/")
+# Root endpoint with API information
+@app.get("/", include_in_schema=False)
 async def root():
-    return {"message": "SET Game Detector API", "status": "online"}
-
-
-@app.get("/health")
-async def health_check():
+    """
+    Root endpoint that returns basic API information
+    """
     return {
-        "status": "healthy",
-        "models_loaded": models_loaded,
-        "version": "1.0.0"
+        "message": "SET Game Detector API", 
+        "status": "online", 
+        "note": "API-only mode",
+        "endpoints": [
+            {"path": "/health", "method": "GET", "description": "Health check endpoint"},
+            {"path": "/api/detect", "method": "POST", "description": "Detect SETs in uploaded image"}
+        ]
     }
 
 
+# Health check endpoint
+@app.get("/health")
+async def health_check():
+    """
+    Health check endpoint that returns the API status
+    """
+    try:
+        # Include essential system info
+        memory_info = {}
+        try:
+            import psutil
+            process = psutil.Process(os.getpid())
+            memory_info = {
+                "memory_usage_mb": round(process.memory_info().rss / (1024 * 1024), 2),
+                "memory_percent": round(process.memory_percent(), 2)
+            }
+        except ImportError:
+            memory_info = {"note": "psutil not available for memory metrics"}
+            
+        return {
+            "status": "healthy",
+            "models_loaded": models_loaded,
+            "version": "1.0.0",
+            "python_version": sys.version,
+            "tensorflow_version": tf.__version__,
+            "pytorch_version": torch.__version__,
+            "system_info": memory_info
+        }
+    except Exception as e:
+        logger.error(f"Health check failed: {str(e)}")
+        return {
+            "status": "unhealthy",
+            "error": str(e),
+            "version": "1.0.0"
+        }
+
+
+# Main API endpoint for SET detection
 @app.post("/api/detect", response_model=DetectionResponse)
 async def detect_sets(file: UploadFile = File(...)):
     """
     Endpoint to detect SET cards and valid SETs in an uploaded image.
+    
+    Args:
+        file: An uploaded image file containing SET cards
+        
+    Returns:
+        A JSON response containing:
+        - image: Base64 encoded image with highlighted SETs
+        - sets_found: List of valid SETs detected in the image
+        - all_cards: List of all cards detected in the image
+        - processing_time: Time taken to process the image
     """
     # Verify file is an image
     if not file.content_type.startswith("image/"):
@@ -624,7 +708,7 @@ async def detect_sets(file: UploadFile = File(...)):
         # Process the image (with a timeout)
         result = await asyncio.wait_for(
             asyncio.to_thread(process_image, img_np),
-            timeout=30  # 30-second timeout
+            timeout=60  # 60-second timeout for large or complex images
         )
         
         # Return results
@@ -645,12 +729,32 @@ async def detect_sets(file: UploadFile = File(...)):
         )
 
 
-# Serve static files from frontend build
-app.mount("/", StaticFiles(directory="frontend/dist", html=True), name="frontend")
+# Check if frontend directory exists and conditionally mount static files
+frontend_path = Path("frontend/dist")
+if frontend_path.exists() and frontend_path.is_dir():
+    try:
+        app.mount("/static", StaticFiles(directory=str(frontend_path)), name="static")
+        logger.info(f"Mounted frontend static files from '{frontend_path}'")
+    except Exception as e:
+        logger.warning(f"Failed to mount frontend directory: {str(e)}")
 
 
 # Run the server if executed directly
 if __name__ == "__main__":
-    # For local development
-    port = int(os.environ.get("PORT", 8000))
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=False)
+    try:
+        # Parse PORT environment variable with fallback
+        port = int(os.environ.get("PORT", 8000))
+        logger.info(f"Starting server on port {port}")
+        
+        # Start uvicorn server
+        uvicorn.run(
+            "main:app", 
+            host="0.0.0.0", 
+            port=port, 
+            reload=False,
+            log_level="info"
+        )
+    except Exception as e:
+        logger.error(f"Failed to start server: {str(e)}")
+        logger.error(traceback.format_exc())
+        sys.exit(1)
