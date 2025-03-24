@@ -12,5 +12,5 @@ restartPolicyMaxRetries = 3
 # Railway resource allocations
 [resources]
 memory = "4096" # 4GB memory allocation
-cpu = "1000"    # 1 CPU core
+cpu = "4000"    # 1 CPU core
 gpu = "off"     # No GPU allocation
