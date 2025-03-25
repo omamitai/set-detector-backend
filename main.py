@@ -74,13 +74,15 @@ app = FastAPI(
     version="1.0.0"
 )
 
-# Add CORS middleware
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # For production, specify actual origins
-    allow_credentials=False,
-    allow_methods=["*"],
+    allow_origins=["*"],
+    allow_credentials=False,  # Changed to False since we're using wildcard origin
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],  # Add this line
+    max_age=86400,  # Cache preflight requests for 24 hours
 )
 
 
