@@ -38,14 +38,17 @@ async def startup_event():
     print("Loading models...")
     
     # Load classification models
-    shape_model = load_model('./models/shape_model.keras')
-    fill_model = load_model('./models/fill_model.keras')
+    shape_model = load_model('./models/Characteristics/11022025/shape_model.keras')
+    fill_model = load_model('./models/Characteristics/11022025/fill_model.keras')
+
     
     # Load YOLO detection models
-    shape_detection_model = YOLO('./models/shape_detection/best.pt')
+    shape_detection_model = YOLO('./models/Shape/15052024/best.pt')
+    shape_detection_model.yaml = './models/Shape/15052024/data.yaml'
     shape_detection_model.conf = 0.5
     
-    card_detection_model = YOLO('./models/card_detection/best.pt')
+    card_detection_model = YOLO('./models/Card/16042024/best.pt')
+    card_detection_model.yaml = './models/Card/16042024/data.yaml'
     card_detection_model.conf = 0.5
     
     print("Models loaded successfully")
