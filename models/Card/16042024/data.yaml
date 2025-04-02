@@ -1,0 +1,12 @@
+names:
+- 'card'
+nc: 1
+roboflow:
+  license: CC BY 4.0
+  project: set_cards
+  url: https://universe.roboflow.com/tel-aviv/set_cards/dataset/1
+  version: 1
+  workspace: tel-aviv
+test: ../test/images
+train: /content/SETCARDSBATCH-3/train/images
+val: /content/SETCARDSBATCH-3/valid/images
