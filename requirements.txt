@@ -4,7 +4,6 @@ python-multipart
 numpy
 pandas
 opencv-python-headless
-tensorflow
-keras
+tensorflow-cpu
 ultralytics
 pillow
